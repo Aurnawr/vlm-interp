@@ -157,13 +157,13 @@ def pooled_layer_activations(
     """Return [L, B, D] pooled hidden states for transformer layers only."""
     # Apply chat templates for safety prompts if the model requires it (like Qwen)
     if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None) is not None:
-        print("DEBUG texts:", texts); formatted_texts = [
+        formatted_texts = [
             tokenizer.apply_chat_template([{"role": "user", "content": t}], tokenize=False, add_generation_prompt=True)
             for t in texts
         ]
     elif "llava" in model.config.model_type.lower() or "llava" in getattr(model.config, "_name_or_path", "").lower():
         # Fallback LLaVA chat template injection to match projection script
-        print("DEBUG texts:", texts); formatted_texts = [
+        formatted_texts = [
             f"USER: {t}\nASSISTANT:"
             for t in texts
         ]
