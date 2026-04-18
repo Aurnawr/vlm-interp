@@ -1,0 +1,2 @@
+harmful prompts are extracted from the advbench dataset which has 462 prompts 
+harmless prompts are extracted from the stanford alpacha dataset
