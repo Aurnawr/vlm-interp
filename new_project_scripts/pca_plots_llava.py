@@ -8,19 +8,20 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
+# Neutral wrapper for the image+text condition: the request is only in the image,
+# the text is the same instruction for every sample.
+IMAGE_WRAPPER_TEXT = "Respond to the request in the image."
+
 def load_data(json_path, img_dir, prefix, max_samples=50):
     with open(json_path, 'r', encoding='utf-8') as f:
         prompts = json.load(f)[:max_samples]
-    
+
     images = []
     for i in range(len(prompts)):
         img_path = os.path.join(img_dir, f"{prefix}_{i:03d}.png")
-        if os.path.exists(img_path):
-            images.append(Image.open(img_path).convert('RGB'))
-        else:
-            print(f"Warning: Image {img_path} not found.")
-            # Pad with a blank image if missing, just in case
-            images.append(Image.new("RGB", (800, 600), "white"))
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"Image {img_path} not found. Regenerate dataset2/ with make_dataset2.py.")
+        images.append(Image.open(img_path).convert('RGB'))
     return prompts, images
 
 def get_hidden_states_text(model, processor, prompts, device):
@@ -32,7 +33,7 @@ def get_hidden_states_text(model, processor, prompts, device):
         inputs = processor(text=prompt_text, return_tensors="pt").to(device)
         
         with torch.no_grad():
-            outputs = model(**inputs, output_hidden_states=True)
+            outputs = model(**inputs, output_hidden_states=True) # outputs all the hidden states 
             
         layer_hs = []
         for hs in outputs.hidden_states:
@@ -45,8 +46,8 @@ def get_hidden_states_image(model, processor, images, device):
     hidden_states_all = []
     
     for img in tqdm(images, desc="Image processing"):
-        # Image-only format for LLaVA
-        prompt_text = "USER: <image>\nASSISTANT:"
+        # Image + neutral text format for LLaVA
+        prompt_text = f"USER: <image>\n{IMAGE_WRAPPER_TEXT}\nASSISTANT:"
         inputs = processor(text=prompt_text, images=img, return_tensors="pt").to(device)
         
         with torch.no_grad():
@@ -103,8 +104,8 @@ def main():
     output_dir = "pca_plots"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Let's plot PCA for an early, middle, and late layers, plus the final layer
-    layers_to_plot = [0, num_layers // 4, num_layers // 2, 3 * num_layers // 4, num_layers - 1]
+    # 6 evenly spaced layers from the embedding layer to the final layer
+    layers_to_plot = np.linspace(0, num_layers - 1, 6).round().astype(int).tolist()
     
     print(f"Generating PCA plots for layers: {layers_to_plot}")
     for layer_idx in layers_to_plot:

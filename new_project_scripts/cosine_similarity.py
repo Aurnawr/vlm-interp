@@ -7,17 +7,20 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
+# Neutral wrapper for the image+text condition: the request is only in the image,
+# the text is the same instruction for every sample.
+IMAGE_WRAPPER_TEXT = "Respond to the request in the image."
+
 def load_data(json_path, img_dir, prefix, max_samples=400):
     with open(json_path, 'r', encoding='utf-8') as f:
         prompts = json.load(f)[:max_samples]
-    
+
     images = []
     for i in range(len(prompts)):
         img_path = os.path.join(img_dir, f"{prefix}_{i:03d}.png")
-        if os.path.exists(img_path):
-            images.append(Image.open(img_path).convert('RGB'))
-        else:
-            images.append(Image.new("RGB", (800, 600), "white"))
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"Image {img_path} not found. Regenerate dataset2/ with make_dataset2.py.")
+        images.append(Image.open(img_path).convert('RGB'))
     return prompts, images
 
 def get_hidden_states_text(model, processor, prompts, device):
@@ -37,7 +40,7 @@ def get_hidden_states_text(model, processor, prompts, device):
 def get_hidden_states_image(model, processor, images, device):
     hidden_states_all = []
     for img in tqdm(images, desc="Image processing"):
-        prompt_text = "USER: <image>\nASSISTANT:"
+        prompt_text = f"USER: <image>\n{IMAGE_WRAPPER_TEXT}\nASSISTANT:"
         inputs = processor(text=prompt_text, images=img, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = model(**inputs, output_hidden_states=True)
