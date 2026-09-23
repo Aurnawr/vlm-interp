@@ -79,12 +79,14 @@ def main():
     num_samples = 400 # Limit to 40 samples per class to keep it fast/avoid OOM for demonstration
     print(f"Loading subset of data ({num_samples} samples per class)...")
     
-    harmful_json = "dataset2/harmful.json"
-    harmful_dir = "dataset2/harmful_images"
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset2")
+
+    harmful_json = os.path.join(data_dir, "harmful.json")
+    harmful_dir = os.path.join(data_dir, "harmful_images")
     harmful_prompts, harmful_images = load_data(harmful_json, harmful_dir, "harmful", max_samples=num_samples)
-    
-    harmless_json = "dataset2/harmless.json"
-    harmless_dir = "dataset2/harmless"
+
+    harmless_json = os.path.join(data_dir, "harmless.json")
+    harmless_dir = os.path.join(data_dir, "harmless")
     harmless_prompts, harmless_images = load_data(harmless_json, harmless_dir, "harmless", max_samples=num_samples)
     
     print("Extracting hidden states for harmful texts...")

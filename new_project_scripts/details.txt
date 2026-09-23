@@ -1,5 +1,5 @@
-harmful prompts are extracted from the advbench dataset which has 462 prompts 
-harmless prompts are extracted from the stanford alpacha dataset
+harmful prompts are extracted from the advbench dataset which has 520 prompts 
+harmless prompts are extracted from the stanford alpacha dataset (used only 520 prompts)
 
 Experiment1- plot pca for harmless and harmful images and text. 
 layer8- we see that the images have same distribution but text has different distributin meaning that the layers have not processed images till now 
