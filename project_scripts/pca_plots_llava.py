@@ -79,7 +79,7 @@ def main():
     num_samples = 400 # Limit to 40 samples per class to keep it fast/avoid OOM for demonstration
     print(f"Loading subset of data ({num_samples} samples per class)...")
     
-    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset2")
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dataset2")
 
     harmful_json = os.path.join(data_dir, "harmful.json")
     harmful_dir = os.path.join(data_dir, "harmful_images")
