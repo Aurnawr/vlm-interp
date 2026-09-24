@@ -14,7 +14,7 @@ Two models are compared, chosen because they are built differently:
 **Status**
 
 - ✅ **Experiment 1** (correlational): text vs image refusal directions, both models, with reliability analysis. Done.
-- 🚧 **Experiment 2** (causal): cross-modal steering / ablation. Script written, no results committed yet.
+- 🚧 **Experiment 2** (causal): cross-modal steering / ablation. LLaVA done; Qwen still to run.
 
 ---
 
@@ -147,7 +147,7 @@ Write-ups: [`comparison.txt`](comparison.txt) (side by side), [`llava-results/re
 
 ---
 
-## Experiment 2: cross-modal steering (in progress)
+## Experiment 2: cross-modal steering
 
 `Experiment-2-scripts/steer_cross_modal.py` turns Experiment 1 into a causal test. Following Arditi et al. (2024), it steers one modality with the *other* modality's refusal vector, with same-modality steering as the reference:
 
@@ -163,7 +163,57 @@ python Experiment-2-scripts/steer_cross_modal.py --model llava --random_control
 python Experiment-2-scripts/steer_cross_modal.py --model qwen  --random_control --resume
 ```
 
-Outputs go to `<model>-results/steering/`: `steering_results.json`, `steering_table.txt`, `steering_refusal_rates_a*.png`.
+Outputs go to `<model>-results/steering/`: `steering_results.json`, `steering_table.txt`, `steering_refusal_rates_a*.png`, `generations.jsonl`. `--resume` continues an interrupted run from `generations.jsonl` (pass the same arguments as that run).
+
+### Results: LLaVA-1.5-7B
+
+Held-out prompts 400–519 (n=120 per class), greedy decoding, 64 new tokens, layers 12 and 20, α ∈ {1, 2, 4}, `--scale target`, with random control. Full table: [`llava-results/steering/steering_table.txt`](llava-results/steering/steering_table.txt).
+
+**Scorer caveat.** The substring scorer counts "I'm sorry, but I am unable to read the image" as a refusal. On image inputs, most steered "refusals" are this, not a refusal of the request. The "genuine" column below excludes them, using an ad-hoc regex over `generations.jsonl` (not yet part of the script).
+
+**Baselines (no steering)**
+
+| Input | Refusal (scorer) | Genuine |
+|---|---|---|
+| Harmful text | 0.79 | 0.79 |
+| Harmful image | 0.12 | **0.00** (all 14 are "can't read the image") |
+| Harmless text | 0.02 | |
+| Harmless image | 0.02 | |
+
+LLaVA never genuinely refuses a harmful typographic image; it mostly transcribes it. So there is no image refusal to ablate, and the ablation-on-image conditions are uninformative for LLaVA.
+
+**Add to harmless inputs (does the vector induce refusal?)**
+
+| Condition | L12 α=1 | α=2 | α=4 | L20 α=1 | α=2 | α=4 |
+|---|---|---|---|---|---|---|
+| **text vec → image** (cross) | 0.05 | 0.18 | 0.56 | 0.28 | 0.63 | 0.91 |
+| &nbsp;&nbsp;genuine (of 120) | 0 | 1 | 49 | 0 | 1 | 53 |
+| image vec → image (same) | 0.04 | 0.08 | 0.38 | 0.07 | 0.20 | 0.65 |
+| &nbsp;&nbsp;genuine (of 120) | 0 | 0 | 0 | 0 | 0 | 6 |
+| **image vec → text** (cross) | 0.03 | 0.02 | 0.01 | 0.07 | 0.03 | 0.00 † |
+| text vec → text (same) | 0.08 | 0.63 | 0.67 | 0.30 | 0.49 | 0.00 † |
+| random → image | 0.01 | 0.01 | 0.01 | 0.02 | 0.02 | 0.03 |
+| random → text | 0.01 | 0.01 | 0.01 | 0.01 | 0.00 | 0.01 |
+
+† Output has collapsed into repetition ("step step step…", "Warning note note…"), which the scorer counts as not refusing.
+
+**Ablate from harmful inputs (does removing the direction bypass refusal?)**
+
+| Condition | L12 | L20 |
+|---|---|---|
+| none (baseline harmful text) | 0.79 | 0.79 |
+| text vec from text (same) | 0.13 | 0.04 |
+| **image vec from text** (cross) | 0.73 | 0.54 |
+| image conditions | uninformative (baseline genuine refusal is 0) | |
+
+![](llava-results/steering/steering_refusal_rates_a4.png)
+
+**Takeaways (LLaVA)**
+
+- **Text → image transfers.** Adding the text refusal direction to harmless images makes LLaVA refuse ~40–45% of them at α=4 (e.g. "I cannot generate a haiku… it goes against my programming"), against ≤3% for a random direction of the same norm. The text refusal mechanism can be triggered from the image pathway.
+- **Image → text does not.** The image vector never induces refusal on text; at high α it only degrades the output. Ablating it from harmful text removes a little refusal at layer 20 (0.79 → 0.54), far less than the text vector (→ 0.04).
+- **The image vector is not a refusal direction for images either.** Added to images, it mostly produces "I can't read the image" rather than refusals, fitting Experiment 1's picture of a weak, poorly aligned image signal (cos ≈ 0.2–0.4 at these layers).
+- Text-vector ablation confirms the text direction is causal for text refusal (0.79 → 0.04 at layer 20).
 
 ---
 
@@ -238,10 +288,13 @@ refusal_text.pt, refusal_image.pt   LLaVA refusal vectors [33, 4096]
 
 - **Typographic images only.** Test with natural harmful images to tell "OCR works well" apart from "modality-general harm concept".
 - **Refusal vs style confound.** AdvBench and Alpaca differ in style and length, not only harmfulness. A stable mean-difference direction is not proof that it is *the* refusal direction. A label-shuffle null is still missing.
-- **No behavioural measurement yet.** Whether the models actually refuse the harmful images was not measured. Experiment 2 addresses this.
+- **Behaviour measured for LLaVA only.** LLaVA does not genuinely refuse harmful typographic images (Experiment 2 baseline). Qwen is still to run.
+- **Refusal scorer.** The substring scorer confuses "can't read the image" with refusal and misses degenerate output. It needs an exclusion list or an LLM judge.
 - **Ad-hoc numbers.** The relative-norm, held-out separability, outlier-dimension and image-to-text-twin figures were computed ad hoc from the cached hidden states. No committed script produces them yet.
 
-- [ ] Run Experiment 2 on both models and commit results
+- [x] Run Experiment 2 on LLaVA
+- [ ] Run Experiment 2 on Qwen
+- [ ] Better refusal scorer (separate "can't read the image", flag degenerate output)
 - [ ] Label-shuffle null
 - [ ] Natural (non-typographic) harmful images
 - [ ] Script the ad-hoc analyses
