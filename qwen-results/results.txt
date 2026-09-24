@@ -1,0 +1,90 @@
+Qwen2.5-VL-7B-Instruct results: refusal across text and image
+
+Setup: same dataset as LLaVA (400 harmful AdvBench / 400 harmless Alpaca prompts, each
+also rendered as an image with the neutral instruction "Respond to the request in the image.").
+Last-token hidden state at every layer. 28 layers + embeddings, hidden size 3584.
+Layer 0 is the shared last token of the chat template, so its refusal vector is zero (NaN rows).
+Scripts: extract_hidden_states_qwen.py, plots_qwen.py, refusal_reliability.py --model qwen.
+
+1. PCA separation
+- Layers 6-11: the modality gap dominates (PC1 = 64-77% of variance). Text sits on one side,
+  images on the other. Harmful vs harmless TEXT separate cleanly. Harmful vs harmless IMAGES
+  form one tight blob with only a slight shift between them.
+- Layer 17: all four groups are distinct. Harmful and harmless images now separate cleanly too.
+  The modality gap is still there, but it has shrunk.
+- Layers 22 and 28: the modality gap is gone. PC1 is harmful vs harmless, and text and image
+  points of the same class lie on top of each other. The model represents a harmful image and a
+  harmful text prompt in the same place.
+- Held-out check (direction fit on even-indexed prompts, tested on odd-indexed ones):
+  harmful vs harmless projected on the mean-difference direction is classified at
+  text 0.93-0.96 / image 0.83-0.98 in layers 1-12, and 0.98-1.00 for both from layer 14 on.
+- t-SNE (layers 6, 11, 17, 22, 28):
+  - Layers 6-11: four groups. Text and images sit on opposite sides, and unlike PCA, t-SNE
+    splits harmful from harmless IMAGES into two sub-clusters with only a small overlap. So the
+    image harm signal is present early, just small next to the modality gap.
+  - Layer 17: four clean, separate clusters, with no mixing between classes.
+  - Layers 22 and 28: harmless text and harmless images merge into ONE cluster. Each harmless
+    image sits right on top of its own text prompt. Harmful text and harmful images lie next to
+    each other on the harmful side but form two adjacent sub-clusters (partly interleaved at 28).
+- Image-to-text-twin check: for each image, is its nearest text point (out of all 800) the text
+  version of the same prompt?
+    layer   6    11    17    22    28
+    harmless 0.01 0.02 0.61 0.94 0.98
+    harmful  0.00 0.00 0.08 0.40 0.74
+  So in late layers Qwen maps most images onto the representation of their own text, prompt by
+  prompt. This is more complete for harmless than for harmful prompts. The harmful image and
+  text centroids also stay further apart (distance 56-66 vs 30-41 for harmless, layers 22-28).
+
+2. Refusal vector norms
+- Early and middle layers: text norm is 2-5x the image norm (4.4x at layer 1, 2.3x at layer 14).
+- The ratio falls steadily. From layer 19 on the two norms are nearly equal (ratio 1.05-1.16),
+  and at layer 28 the image norm is slightly larger (0.97).
+- Relative to the typical hidden-state norm at each layer, the refusal vector reaches about
+  0.6-0.7 of the hidden-state norm for BOTH modalities in layers 20-26. So harmful vs harmless is
+  a dominant feature of the late residual stream for both modalities.
+- Both norms grow sharply after layer 18 (text 53 -> 395 by layer 27), then drop at the final
+  layer 28 (text 161, image 166), as LLaVA drops at its final layer.
+- Bootstrap 95% CIs on both norm curves are narrow (reliability/norms_with_ci.png).
+
+3. Cosine similarity (text vs image refusal vector), with 95% bootstrap CIs
+- Layers 1-13: 0.15-0.43. Already above 0 at layer 1 (0.23 [0.20, 0.25]).
+- Layer 13 -> 14: a jump from 0.43 to 0.68 [0.66, 0.69].
+- Layers 14-19: rises to 0.86.
+- Layers 20-28: 0.90-0.95. Peak 0.952 [0.950, 0.953] at layers 25-26.
+
+4. Is the cosine a real result? (reliability/reliability_table.txt)
+- Noise ceiling (split-half self-consistency scaled up to n=400 with Spearman-Brown):
+  text 0.99-0.998, image 0.99-0.999. Both refusal vectors are almost noise-free.
+- Noise-corrected cosine (cross-modal / sqrt of the two self-consistencies) is within 0.005 of
+  the raw cosine at every layer. Sampling noise explains none of the gap from 1.
+- Random-direction null (95th pct |cos|): 0.031-0.034. Every layer is far above it.
+- Bootstrap CIs are tight: at most +-0.03 early, +-0.002 in late layers.
+- Massive-activation check: dropping the 10 largest-magnitude dimensions barely changes the
+  cosine (0.946 -> 0.944 at layer 24), and no single dimension holds more than 9% of either
+  vector's squared norm. The high late-layer cosine is spread across many dimensions, not driven
+  by a few outlier dimensions.
+- So you can write: "cos = 0.95 [0.950, 0.953] at layer 25, against a text self-consistency
+  of 0.998 and an image self-consistency of 0.998." Late-layer text and image refusal
+  directions in Qwen are nearly the same direction.
+
+Takeaway
+- In Qwen2.5-VL, the image harmfulness signal starts weaker than the text one but converges
+  onto it. From about two-thirds depth (layer 19-20), images and text share essentially one
+  refusal direction with equal strength, and the modality gap in PCA disappears.
+- The transition is sharp, around layer 13-14 (halfway through the network).
+- Layers 20-27 are the natural place to test one shared refusal direction, e.g. steer
+  image inputs with the text-derived vector.
+
+Caveats
+- The images are typographic: the request is rendered text. Qwen2.5-VL is trained heavily on
+  OCR, so late-layer convergence may mean "Qwen reads the text, then processes it as text".
+  The image-to-text-twin result (98% at layer 28 for harmless prompts) points strongly this way.
+  That is not the same as a modality-general harm concept. Natural harmful images are needed to
+  tell these apart.
+- The held-out separability, relative norms, outlier-dimension and image-to-text-twin numbers
+  were computed ad hoc from the cached hidden states. No saved script produces them yet.
+- Harmful (AdvBench) and harmless (Alpaca) prompts also differ in style and length. A stable
+  direction is not necessarily a refusal direction. The random null is a weak floor. A
+  label-shuffle null and causal tests (ablate/add the vector, measure refusal rates) are still
+  missing.
+- Refusal behaviour itself (does Qwen actually refuse the harmful images?) was not measured.

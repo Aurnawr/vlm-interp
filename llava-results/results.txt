@@ -1,0 +1,32 @@
+LLaVA-1.5-7B results: refusal across text and image
+
+1. t-SNE / PCA separation
+- Harmful and harmless TEXT separate cleanly at every layer.
+- Harmful and harmless IMAGES overlap a lot. There is only a partial split
+  (harmful on one side of the image cloud, harmless on the other), never clean clusters.
+- So the harmful/harmless signal is much weaker for images than for text.
+
+2. Modality gap
+- Image states and text states sit in completely separate regions at all layers
+  (along PC1 in PCA). The model keeps "image input" and "text input" apart
+  internally, even when the content is the same.
+
+3. Refusal vector norms
+- The text refusal vector is roughly 2-5x larger than the image one at every layer.
+- The image norm barely grows until about layer 15. The text norm starts growing
+  around layers 7-10.
+- Both peak at layer 31 and drop at layer 32 (the final layer).
+- This confirms that the image refusal direction is weak and shows up late.
+
+4. Cosine similarity (text vs image refusal vector)
+- Early layers (1-4): about 0 or negative, so the two directions are unrelated.
+- Layers 5-15: flat at about 0.1-0.15.
+- Layers 15-25: rises steadily to about 0.38, then stays at 0.38-0.45 up to layer 32.
+- Even at best the similarity is about 0.45, so the image refusal direction only
+  partly lines up with the text one.
+
+Takeaway
+- Images carry a weaker, later and only partly aligned harmfulness signal than text.
+  This may explain why harmful images can get past refusal that was trained on text.
+- Mid-to-late layers (about 20-31) are the best place to try steering or to compare
+  the two refusal vectors, because that is where they align most.

@@ -1,0 +1,100 @@
+LLaVA-1.5-7B vs Qwen2.5-VL-7B: refusal across text and image
+
+Both models: same 400 harmful (AdvBench) / 400 harmless (Alpaca) prompts, as text and as
+rendered images with the neutral instruction "Respond to the request in the image.".
+Refusal vector = mean(harmful) - mean(harmless) of the last-token hidden state, per layer.
+Details: llava-results/results.txt, qwen-results/results.txt, */reliability/reliability_table.txt.
+
+Architectures differ, so compare by RELATIVE DEPTH (layer / number of layers):
+  LLaVA-1.5-7B : CLIP ViT-L + MLP projector bolted onto Vicuna-7B, 32 layers, dim 4096
+  Qwen2.5-VL-7B: vision encoder + LLM trained together on large multimodal/OCR data,
+                 28 layers, dim 3584
+
+------------------------------------------------------------------------------
+Summary table (cosine = cos(v_text, v_image), 95% bootstrap CI)
+
+ depth | LLaVA layer  cosine               | Qwen layer  cosine
+ ------+-------------------------------------+-----------------------------------
+ ~0.03 |  1   -0.28 [-0.33, -0.22]          |  1   0.23 [0.20, 0.25]
+ ~0.25 |  8    0.12 [ 0.10,  0.13]          |  7   0.39 [0.37, 0.40]
+ ~0.50 | 16    0.23 [ 0.22,  0.25]          | 14   0.68 [0.66, 0.69]
+ ~0.75 | 24    0.37 [ 0.36,  0.38]          | 21   0.93 [0.93, 0.93]
+ ~0.90 | 29    0.38 [ 0.37,  0.39]          | 25   0.95 [0.95, 0.95]
+  1.00 | 32    0.45 [ 0.43,  0.46]          | 28   0.95 [0.95, 0.95]
+
+ Peak cosine            : LLaVA 0.45 (last layer)        | Qwen 0.95 (layers 25-26)
+ Noise ceiling (both)   : LLaVA text 0.99 / image 0.97-0.99 | Qwen 0.99-0.998 for both
+ Noise-corrected cosine : ~= raw cosine in both models (noise explains nothing)
+ Random null (95th pct) : LLaVA 0.03                     | Qwen 0.03
+
+------------------------------------------------------------------------------
+1. Alignment of the text and image refusal directions
+- LLaVA: the directions stay mostly different. The cosine is 0.1-0.15 through the middle
+  of the network, then rises to 0.38-0.45 at the end, well below a ceiling of 0.99.
+- Qwen: the directions converge. The cosine is 0.15-0.43 up to mid-depth, jumps at
+  layer 13 -> 14 (0.43 -> 0.68), and reaches 0.90-0.95 from layer 20 on.
+- Both results are solid. The noise ceilings are ~0.99, CIs are tight, and the random null
+  is ~0.03. So the difference between the models is real, not sampling noise.
+- Early layers differ in sign. LLaVA layer 1 is significantly NEGATIVE (-0.28); Qwen layer 1
+  is positive (0.23).
+
+2. Strength of the image signal (refusal vector norms)
+- LLaVA: the text norm is 2-9x the image norm at every layer. The image norm barely grows
+  before mid-depth. Relative to the typical hidden-state norm, the late-layer image refusal
+  vector is ~0.2 against ~0.5-0.6 for text.
+- Qwen: the text norm starts 2-5x larger, but the ratio shrinks to ~1.05 from layer 19 on.
+  Relative to the hidden-state norm, both reach ~0.6-0.7 in layers 20-26. Late in the network,
+  images drive the harmful/harmless feature as strongly as text does.
+- Both models show a norm drop at the final layer.
+
+3. Geometry (PCA and t-SNE)
+- LLaVA: the modality gap persists at every layer, up to layer 32. Text and images occupy
+  separate regions. In t-SNE at layer 32, images form their own region made of many small
+  mixed harmful/harmless clumps, well away from both text clusters.
+- Qwen: the modality gap dominates early (PC1 = 64-77% at layers 6-11), shrinks by layer 17,
+  and is gone by layers 22-28. There PC1 is harmful vs harmless. In t-SNE, harmless images
+  and harmless text merge into one cluster; harmful images and harmful text sit side by side
+  as two adjacent sub-clusters.
+
+4. Does each image land on its own text? (image-to-text-twin check)
+  For each image: is its nearest text point (out of all 800) the text of the same prompt?
+
+   LLaVA layer   8     16    24    32     | Qwen layer   6     11    17    22    28
+   harmless     0.00  0.01  0.06  0.06    | harmless    0.01  0.02  0.61  0.94  0.98
+   harmful      0.00  0.00  0.07  0.14    | harmful     0.00  0.00  0.08  0.40  0.74
+
+- LLaVA never maps an image onto its own text. Qwen does so for almost every harmless prompt
+  and most harmful ones by its last layers. The convergence in Qwen is per-prompt, not just
+  class-level, and it is weaker for harmful prompts than harmless ones.
+
+5. Linear separability of harmful vs harmless images
+  (held-out: mean-difference direction fit on even prompts, tested on odd prompts)
+- LLaVA image: 0.68-0.86 in layers 1-4, 0.88-0.96 from layer 6 on (text: 0.92-0.98).
+- Qwen image:  0.83-0.85 in layers 1-4, 0.94-0.98 in layers 6-12, 0.99-1.00 from layer 14 on
+  (text: 0.93-1.00).
+- Note: even in LLaVA the image classes are fairly separable along this direction. The PCA plots
+  under-sell it because the modality gap takes up the top PCs. So LLaVA's image signal is not
+  absent. It is weaker and points in a different direction from the text signal.
+
+------------------------------------------------------------------------------
+Interpretation
+- In LLaVA-1.5 (adapter-style VLM), images carry their own weaker harmfulness signal that
+  only partly aligns with the text refusal direction. This fits the idea that text-trained
+  refusal does not fully transfer to images, which is a plausible route for image-based jailbreaks.
+- In Qwen2.5-VL (natively trained VLM), the image signal is folded into the SAME
+  representation as text by about two-thirds depth: same direction (cos 0.95), same strength,
+  no modality gap. A single refusal direction should work for both modalities in layers ~20-27.
+- Caution: both datasets use typographic images (the prompt rendered as text). Qwen's strong
+  OCR training may simply let it read the image into a text-like representation. The
+  convergence may be "OCR works well" rather than "harm is represented modality-independently".
+  The image-to-text-twin result (section 4) points strongly toward the OCR reading.
+  Natural harmful images are needed to separate these.
+
+Caveats (both models)
+- AdvBench vs Alpaca differ in style and length as well as harmfulness. A stable
+  mean-difference direction is not proof it is refusal.
+- Missing: label-shuffle null, causal tests (ablate/add the vector and measure refusal rates),
+  and measured refusal behaviour on the image inputs.
+- The per-layer relative norms, held-out separability, outlier-dimension and image-to-text-twin
+  checks quoted here were computed ad hoc from the cached hidden states. No saved script
+  produces them yet.
