@@ -12,3 +12,4 @@ refusal_direction_llava7b_text.pt
 new_project_scripts/dataset2/
 __pycache__/
 project_scripts/hidden_states_llava.npz
+dataset_vlsu
